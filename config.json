@@ -1,0 +1,16 @@
+{
+  "telegram": {
+    "token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID"
+  },
+  "vosk_model_path": "vosk-model-small-en-us-0.15",
+  "audio_device": "ReSpeaker",
+  "log_dir": "logs",
+  "triggers": [
+    {
+      "phrase": "hi pop",
+      "action": "send_telegram",
+      "message": "Hi Pop! Someone said hi to you 👋"
+    }
+  ]
+}
