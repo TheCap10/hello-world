@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Capital One Spending Tracker</title>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f4f6f9; color: #1a1a2e; }
+    header {
+      background: linear-gradient(135deg, #d0021b 0%, #9b1d20 100%);
+      color: white; padding: 1.2rem 2rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header span { font-size: 0.85rem; opacity: 0.8; }
+    .container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+
+    /* Connect card */
+    #connect-section {
+      background: white; border-radius: 12px; padding: 3rem 2rem;
+      text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    #connect-section h2 { margin-bottom: 0.5rem; }
+    #connect-section p { color: #666; margin-bottom: 1.5rem; }
+    .btn {
+      background: #d0021b; color: white; border: none;
+      padding: .75rem 2rem; border-radius: 8px; font-size: 1rem;
+      cursor: pointer; font-weight: 600; transition: background .2s;
+    }
+    .btn:hover { background: #a50116; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    /* Dashboard */
+    #dashboard { display: none; }
+    .controls {
+      display: flex; align-items: center; gap: 1rem;
+      margin-bottom: 1.5rem; flex-wrap: wrap;
+    }
+    .controls label { font-weight: 600; }
+    .controls select {
+      padding: .45rem .75rem; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 0.95rem;
+    }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card {
+      background: white; border-radius: 10px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    }
+    .stat-card .label { font-size: .8rem; color: #888; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: .25rem; }
+    .stat-card .value.red { color: #d0021b; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+    @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+    .card {
+      background: white; border-radius: 10px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    }
+    .card h3 { margin-bottom: 1rem; font-size: 1rem; color: #444; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th { text-align: left; padding: .6rem .75rem; border-bottom: 2px solid #eee; color: #888; font-size: .78rem; text-transform: uppercase; }
+    td { padding: .55rem .75rem; border-bottom: 1px solid #f0f0f0; }
+    tr:last-child td { border-bottom: none; }
+    .amount { font-weight: 600; color: #d0021b; }
+    .badge {
+      display: inline-block; padding: .2rem .55rem; border-radius: 20px;
+      font-size: .75rem; background: #f0f0f0; color: #555;
+    }
+
+    #status { color: #888; font-size: .85rem; }
+    .loading { text-align: center; padding: 2rem; color: #aaa; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Capital One Spending Tracker</h1>
+    <span>Powered by Plaid</span>
+  </div>
+  {% if connected %}
+  <div style="margin-left:auto">
+    <button class="btn" id="reconnect-btn">+ Add Account</button>
+  </div>
+  {% endif %}
+</header>
+
+<div class="container">
+
+  <!-- Not yet connected -->
+  {% if not connected %}
+  <div id="connect-section">
+    <h2>Connect your Capital One account</h2>
+    <p>Securely link via Plaid — read-only access, no credentials stored on this server.</p>
+    <button class="btn" id="connect-btn">Connect Capital One</button>
+    <p style="margin-top:1rem; font-size:.8rem; color:#aaa" id="status"></p>
+  </div>
+  {% endif %}
+
+  <!-- Dashboard (shown after connect, or if already connected) -->
+  <div id="dashboard" {% if connected %}style="display:block"{% endif %}>
+    <div class="controls">
+      <label for="days-select">Show last</label>
+      <select id="days-select">
+        <option value="7">7 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="60">60 days</option>
+        <option value="90">90 days</option>
+      </select>
+      <span id="status" style="margin-left:auto"></span>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="label">Total Spent</div>
+        <div class="value red" id="stat-total">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Transactions</div>
+        <div class="value" id="stat-count">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Top Category</div>
+        <div class="value" id="stat-top-cat" style="font-size:1.2rem;margin-top:.5rem">—</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Spending by Category</h3>
+        <canvas id="cat-chart" height="220"></canvas>
+      </div>
+      <div class="card">
+        <h3>Daily Spending</h3>
+        <canvas id="date-chart" height="220"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Recent Transactions</h3>
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th></tr>
+        </thead>
+        <tbody id="txn-tbody">
+          <tr><td colspan="4" class="loading">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Plaid Link ────────────────────────────────────────────────────────────────
+async function openPlaidLink() {
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = 'Initializing…';
+  const btn = document.getElementById('connect-btn') || document.getElementById('reconnect-btn');
+  if (btn) btn.disabled = true;
+
+  const res = await fetch('/api/create_link_token', { method: 'POST' });
+  const { link_token, error } = await res.json();
+  if (error) { statusEl.textContent = 'Error: ' + error; if (btn) btn.disabled = false; return; }
+
+  const handler = Plaid.create({
+    token: link_token,
+    onSuccess: async (public_token) => {
+      statusEl.textContent = 'Connecting account…';
+      const r = await fetch('/api/exchange_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_token }),
+      });
+      const data = await r.json();
+      if (data.status === 'connected') {
+        document.getElementById('connect-section') && (document.getElementById('connect-section').style.display = 'none');
+        document.getElementById('dashboard').style.display = 'block';
+        loadTransactions();
+      } else {
+        statusEl.textContent = 'Error: ' + (data.error || 'unknown');
+        if (btn) btn.disabled = false;
+      }
+    },
+    onExit: () => { statusEl.textContent = ''; if (btn) btn.disabled = false; },
+  });
+  handler.open();
+}
+
+document.getElementById('connect-btn')?.addEventListener('click', openPlaidLink);
+document.getElementById('reconnect-btn')?.addEventListener('click', openPlaidLink);
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+let catChart, dateChart;
+const COLORS = ['#d0021b','#e8514a','#f0837e','#f5a9a7','#c0392b','#e74c3c','#922b21','#7b241c'];
+
+function buildCatChart(labels, values) {
+  const ctx = document.getElementById('cat-chart').getContext('2d');
+  if (catChart) catChart.destroy();
+  catChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: COLORS }] },
+    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } },
+  });
+}
+
+function buildDateChart(labels, values) {
+  const ctx = document.getElementById('date-chart').getContext('2d');
+  if (dateChart) dateChart.destroy();
+  dateChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: 'Spent ($)', data: values, backgroundColor: '#d0021b88', borderColor: '#d0021b', borderWidth: 1 }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: { y: { ticks: { callback: v => '$' + v } } },
+    },
+  });
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+async function loadTransactions() {
+  const days = document.getElementById('days-select').value;
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = 'Loading…';
+  document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
+
+  const res = await fetch('/api/transactions?days=' + days);
+  const data = await res.json();
+  if (data.error) { statusEl.textContent = 'Error: ' + data.error; return; }
+  statusEl.textContent = '';
+
+  document.getElementById('stat-total').textContent = '$' + data.total.toFixed(2);
+  document.getElementById('stat-count').textContent = data.transactions.length;
+  const topCat = Object.keys(data.by_category)[0] || '—';
+  document.getElementById('stat-top-cat').textContent = topCat;
+
+  buildCatChart(Object.keys(data.by_category), Object.values(data.by_category));
+  buildDateChart(Object.keys(data.by_date), Object.values(data.by_date));
+
+  const tbody = document.getElementById('txn-tbody');
+  if (!data.transactions.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:1rem">No transactions found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.transactions.map(t => `
+    <tr>
+      <td>${t.date}</td>
+      <td>${escHtml(t.name)}</td>
+      <td><span class="badge">${escHtml(t.category)}</span></td>
+      <td class="amount">$${t.amount.toFixed(2)}</td>
+    </tr>
+  `).join('');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+document.getElementById('days-select')?.addEventListener('change', loadTransactions);
+
+// Auto-load if already connected
+if (document.getElementById('dashboard').style.display !== 'none') loadTransactions();
+</script>
+
+</body>
+</html>
