@@ -4,53 +4,85 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Capital One Spending Tracker</title>
-  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #f4f6f9; color: #1a1a2e; }
+
     header {
       background: linear-gradient(135deg, #d0021b 0%, #9b1d20 100%);
       color: white; padding: 1.2rem 2rem;
-      display: flex; align-items: center; gap: 1rem;
     }
     header h1 { font-size: 1.4rem; font-weight: 700; }
-    header span { font-size: 0.85rem; opacity: 0.8; }
+    header p  { font-size: 0.85rem; opacity: 0.75; margin-top: .2rem; }
+
     .container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
 
-    /* Connect card */
-    #connect-section {
+    /* Upload card */
+    #upload-section {
       background: white; border-radius: 12px; padding: 3rem 2rem;
       text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,.08);
     }
-    #connect-section h2 { margin-bottom: 0.5rem; }
-    #connect-section p { color: #666; margin-bottom: 1.5rem; }
+    #upload-section h2 { margin-bottom: .5rem; }
+    #upload-section p  { color: #666; margin-bottom: 1.5rem; max-width: 520px; margin-inline: auto; }
+
+    .drop-zone {
+      border: 2px dashed #d0021b; border-radius: 10px;
+      padding: 2.5rem 1rem; cursor: pointer; transition: background .2s;
+      max-width: 440px; margin: 0 auto 1rem;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { background: #fff0f0; }
+    .drop-zone svg { width: 40px; height: 40px; color: #d0021b; margin-bottom: .75rem; }
+    .drop-zone p { color: #888; font-size: .9rem; }
+    .drop-zone strong { color: #d0021b; }
+    #file-input { display: none; }
+
     .btn {
       background: #d0021b; color: white; border: none;
-      padding: .75rem 2rem; border-radius: 8px; font-size: 1rem;
+      padding: .7rem 1.8rem; border-radius: 8px; font-size: 1rem;
       cursor: pointer; font-weight: 600; transition: background .2s;
     }
     .btn:hover { background: #a50116; }
-    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-sm { padding: .45rem 1rem; font-size: .85rem; }
+
+    .steps {
+      display: flex; gap: 1.5rem; justify-content: center;
+      flex-wrap: wrap; margin-bottom: 2rem; text-align: left;
+    }
+    .step {
+      background: #f9f9f9; border-radius: 8px; padding: .9rem 1.1rem;
+      font-size: .85rem; max-width: 200px; border: 1px solid #eee;
+    }
+    .step .num {
+      display: inline-block; background: #d0021b; color: white;
+      border-radius: 50%; width: 22px; height: 22px;
+      text-align: center; line-height: 22px; font-size: .75rem;
+      font-weight: 700; margin-bottom: .4rem;
+    }
+
+    #error-msg {
+      color: #d0021b; font-size: .9rem; margin-top: .75rem; display: none;
+    }
 
     /* Dashboard */
     #dashboard { display: none; }
-    .controls {
+    .dash-header {
       display: flex; align-items: center; gap: 1rem;
       margin-bottom: 1.5rem; flex-wrap: wrap;
     }
-    .controls label { font-weight: 600; }
-    .controls select {
-      padding: .45rem .75rem; border: 1px solid #ddd;
-      border-radius: 6px; font-size: 0.95rem;
+    .dash-header h2 { flex: 1; font-size: 1.1rem; color: #444; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
     }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
     .stat-card {
       background: white; border-radius: 10px; padding: 1.25rem 1.5rem;
       box-shadow: 0 2px 8px rgba(0,0,0,.07);
     }
-    .stat-card .label { font-size: .8rem; color: #888; text-transform: uppercase; letter-spacing: .05em; }
-    .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: .25rem; }
+    .stat-card .label { font-size: .78rem; color: #888; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-card .value { font-size: 1.9rem; font-weight: 700; margin-top: .25rem; }
     .stat-card .value.red { color: #d0021b; }
 
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
@@ -61,58 +93,81 @@
     }
     .card h3 { margin-bottom: 1rem; font-size: 1rem; color: #444; }
 
-    /* Table */
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    th { text-align: left; padding: .6rem .75rem; border-bottom: 2px solid #eee; color: #888; font-size: .78rem; text-transform: uppercase; }
-    td { padding: .55rem .75rem; border-bottom: 1px solid #f0f0f0; }
-    tr:last-child td { border-bottom: none; }
-    .amount { font-weight: 600; color: #d0021b; }
-    .badge {
-      display: inline-block; padding: .2rem .55rem; border-radius: 20px;
-      font-size: .75rem; background: #f0f0f0; color: #555;
+    /* Filter bar */
+    .filter-bar {
+      display: flex; gap: .75rem; flex-wrap: wrap;
+      align-items: center; margin-bottom: 1rem;
+    }
+    .filter-bar input, .filter-bar select {
+      padding: .4rem .75rem; border: 1px solid #ddd;
+      border-radius: 6px; font-size: .9rem; flex: 1; min-width: 140px;
     }
 
-    #status { color: #888; font-size: .85rem; }
-    .loading { text-align: center; padding: 2rem; color: #aaa; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    th {
+      text-align: left; padding: .55rem .75rem;
+      border-bottom: 2px solid #eee; color: #888;
+      font-size: .75rem; text-transform: uppercase; cursor: pointer;
+      user-select: none; white-space: nowrap;
+    }
+    th:hover { color: #d0021b; }
+    td { padding: .5rem .75rem; border-bottom: 1px solid #f0f0f0; }
+    tr:last-child td { border-bottom: none; }
+    .amount { font-weight: 600; color: #d0021b; text-align: right; }
+    th.amount { text-align: right; }
+    .badge {
+      display: inline-block; padding: .18rem .5rem; border-radius: 20px;
+      font-size: .72rem; background: #f0f0f0; color: #555;
+    }
+
+    #loading { text-align: center; padding: 2rem; color: #aaa; display: none; }
   </style>
 </head>
 <body>
 
 <header>
-  <div>
-    <h1>Capital One Spending Tracker</h1>
-    <span>Powered by Plaid</span>
-  </div>
-  {% if connected %}
-  <div style="margin-left:auto">
-    <button class="btn" id="reconnect-btn">+ Add Account</button>
-  </div>
-  {% endif %}
+  <h1>Capital One Spending Tracker</h1>
+  <p>No logins or API keys — just upload your CSV export</p>
 </header>
 
 <div class="container">
 
-  <!-- Not yet connected -->
-  {% if not connected %}
-  <div id="connect-section">
-    <h2>Connect your Capital One account</h2>
-    <p>Securely link via Plaid — read-only access, no credentials stored on this server.</p>
-    <button class="btn" id="connect-btn">Connect Capital One</button>
-    <p style="margin-top:1rem; font-size:.8rem; color:#aaa" id="status"></p>
-  </div>
-  {% endif %}
+  <!-- Upload section -->
+  <div id="upload-section">
+    <h2>Upload your Capital One transaction CSV</h2>
+    <p style="margin-bottom:1.5rem">
+      Download your transactions from Capital One's website, then drop the file below.
+    </p>
 
-  <!-- Dashboard (shown after connect, or if already connected) -->
-  <div id="dashboard" {% if connected %}style="display:block"{% endif %}>
-    <div class="controls">
-      <label for="days-select">Show last</label>
-      <select id="days-select">
-        <option value="7">7 days</option>
-        <option value="30" selected>30 days</option>
-        <option value="60">60 days</option>
-        <option value="90">90 days</option>
-      </select>
-      <span id="status" style="margin-left:auto"></span>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><br>Log in to <strong>capitalone.com</strong></div>
+      <div class="step"><div class="num">2</div><br>Open your account &rarr; <strong>Transaction History</strong></div>
+      <div class="step"><div class="num">3</div><br>Click <strong>Download</strong> &rarr; choose <strong>CSV</strong></div>
+      <div class="step"><div class="num">4</div><br>Drop the file here &darr;</div>
+    </div>
+
+    <div class="drop-zone" id="drop-zone">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+      </svg>
+      <p><strong>Drop your CSV here</strong> or <strong>click to browse</strong></p>
+      <p id="file-name" style="margin-top:.4rem;font-size:.8rem;color:#aaa"></p>
+    </div>
+    <input type="file" id="file-input" accept=".csv" />
+
+    <div>
+      <button class="btn" id="upload-btn" disabled>Analyze Spending</button>
+    </div>
+    <div id="error-msg"></div>
+    <div id="loading">Parsing transactions…</div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <div class="dash-header">
+      <h2 id="dash-subtitle"></h2>
+      <button class="btn btn-sm" id="reset-btn">Upload another file</button>
     </div>
 
     <div class="stats">
@@ -125,98 +180,150 @@
         <div class="value" id="stat-count">—</div>
       </div>
       <div class="stat-card">
+        <div class="label">Avg per Transaction</div>
+        <div class="value" id="stat-avg">—</div>
+      </div>
+      <div class="stat-card">
         <div class="label">Top Category</div>
-        <div class="value" id="stat-top-cat" style="font-size:1.2rem;margin-top:.5rem">—</div>
+        <div class="value" id="stat-top-cat" style="font-size:1.1rem;line-height:1.3">—</div>
       </div>
     </div>
 
     <div class="grid2">
       <div class="card">
         <h3>Spending by Category</h3>
-        <canvas id="cat-chart" height="220"></canvas>
+        <canvas id="cat-chart" height="230"></canvas>
       </div>
       <div class="card">
         <h3>Daily Spending</h3>
-        <canvas id="date-chart" height="220"></canvas>
+        <canvas id="date-chart" height="230"></canvas>
       </div>
     </div>
 
     <div class="card">
-      <h3>Recent Transactions</h3>
+      <h3>Transactions</h3>
+      <div class="filter-bar">
+        <input type="text" id="search" placeholder="Search merchant…" />
+        <select id="cat-filter"><option value="">All categories</option></select>
+      </div>
       <table>
         <thead>
-          <tr><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th></tr>
+          <tr>
+            <th data-col="date">Date ▴</th>
+            <th data-col="name">Merchant</th>
+            <th data-col="category">Category</th>
+            <th data-col="amount" class="amount">Amount</th>
+          </tr>
         </thead>
-        <tbody id="txn-tbody">
-          <tr><td colspan="4" class="loading">Loading…</td></tr>
-        </tbody>
+        <tbody id="txn-tbody"></tbody>
       </table>
+      <p id="row-count" style="font-size:.8rem;color:#aaa;margin-top:.6rem"></p>
     </div>
   </div>
 
 </div>
 
 <script>
-// ── Plaid Link ────────────────────────────────────────────────────────────────
-async function openPlaidLink() {
-  const statusEl = document.getElementById('status');
-  statusEl.textContent = 'Initializing…';
-  const btn = document.getElementById('connect-btn') || document.getElementById('reconnect-btn');
-  if (btn) btn.disabled = true;
+// ── State ─────────────────────────────────────────────────────────────────────
+let allTransactions = [];
+let sortCol = 'date';
+let sortAsc = false;
 
-  const res = await fetch('/api/create_link_token', { method: 'POST' });
-  const { link_token, error } = await res.json();
-  if (error) { statusEl.textContent = 'Error: ' + error; if (btn) btn.disabled = false; return; }
+// ── File handling ─────────────────────────────────────────────────────────────
+const dropZone   = document.getElementById('drop-zone');
+const fileInput  = document.getElementById('file-input');
+const uploadBtn  = document.getElementById('upload-btn');
+const fileNameEl = document.getElementById('file-name');
+const errorEl    = document.getElementById('error-msg');
+const loadingEl  = document.getElementById('loading');
+let selectedFile = null;
 
-  const handler = Plaid.create({
-    token: link_token,
-    onSuccess: async (public_token) => {
-      statusEl.textContent = 'Connecting account…';
-      const r = await fetch('/api/exchange_token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ public_token }),
-      });
-      const data = await r.json();
-      if (data.status === 'connected') {
-        document.getElementById('connect-section') && (document.getElementById('connect-section').style.display = 'none');
-        document.getElementById('dashboard').style.display = 'block';
-        loadTransactions();
-      } else {
-        statusEl.textContent = 'Error: ' + (data.error || 'unknown');
-        if (btn) btn.disabled = false;
-      }
-    },
-    onExit: () => { statusEl.textContent = ''; if (btn) btn.disabled = false; },
-  });
-  handler.open();
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+
+function setFile(file) {
+  if (!file) return;
+  selectedFile = file;
+  fileNameEl.textContent = file.name;
+  uploadBtn.disabled = false;
+  errorEl.style.display = 'none';
 }
 
-document.getElementById('connect-btn')?.addEventListener('click', openPlaidLink);
-document.getElementById('reconnect-btn')?.addEventListener('click', openPlaidLink);
+uploadBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  errorEl.style.display = 'none';
+  loadingEl.style.display = 'block';
+  uploadBtn.disabled = true;
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+
+  try {
+    const res  = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    loadingEl.style.display = 'none';
+
+    if (data.error) {
+      errorEl.textContent = data.error;
+      errorEl.style.display = 'block';
+      uploadBtn.disabled = false;
+      return;
+    }
+    showDashboard(data, selectedFile.name);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    errorEl.textContent = 'Upload failed: ' + e.message;
+    errorEl.style.display = 'block';
+    uploadBtn.disabled = false;
+  }
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('upload-section').style.display = 'block';
+  selectedFile = null;
+  fileInput.value = '';
+  fileNameEl.textContent = '';
+  uploadBtn.disabled = true;
+});
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 let catChart, dateChart;
-const COLORS = ['#d0021b','#e8514a','#f0837e','#f5a9a7','#c0392b','#e74c3c','#922b21','#7b241c'];
+const COLORS = ['#d0021b','#e85454','#f08080','#c0392b','#922b21','#7b241c','#f5a9a7','#e74c3c'];
 
-function buildCatChart(labels, values) {
-  const ctx = document.getElementById('cat-chart').getContext('2d');
+function buildCharts(data) {
+  const catLabels = Object.keys(data.by_category);
+  const catValues = Object.values(data.by_category);
+
+  const catCtx = document.getElementById('cat-chart').getContext('2d');
   if (catChart) catChart.destroy();
-  catChart = new Chart(ctx, {
+  catChart = new Chart(catCtx, {
     type: 'doughnut',
-    data: { labels, datasets: [{ data: values, backgroundColor: COLORS }] },
-    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } },
+    data: { labels: catLabels, datasets: [{ data: catValues, backgroundColor: COLORS }] },
+    options: {
+      plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } },
+    },
   });
-}
 
-function buildDateChart(labels, values) {
-  const ctx = document.getElementById('date-chart').getContext('2d');
+  const dateLabels = Object.keys(data.by_date);
+  const dateValues = Object.values(data.by_date);
+  const dateCtx = document.getElementById('date-chart').getContext('2d');
   if (dateChart) dateChart.destroy();
-  dateChart = new Chart(ctx, {
+  dateChart = new Chart(dateCtx, {
     type: 'bar',
     data: {
-      labels,
-      datasets: [{ label: 'Spent ($)', data: values, backgroundColor: '#d0021b88', borderColor: '#d0021b', borderWidth: 1 }],
+      labels: dateLabels,
+      datasets: [{
+        label: 'Spent ($)', data: dateValues,
+        backgroundColor: '#d0021b88', borderColor: '#d0021b', borderWidth: 1,
+      }],
     },
     options: {
       plugins: { legend: { display: false } },
@@ -225,49 +332,86 @@ function buildDateChart(labels, values) {
   });
 }
 
-// ── Load data ─────────────────────────────────────────────────────────────────
-async function loadTransactions() {
-  const days = document.getElementById('days-select').value;
-  const statusEl = document.getElementById('status');
-  statusEl.textContent = 'Loading…';
-  document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function showDashboard(data, filename) {
+  allTransactions = data.transactions;
 
-  const res = await fetch('/api/transactions?days=' + days);
-  const data = await res.json();
-  if (data.error) { statusEl.textContent = 'Error: ' + data.error; return; }
-  statusEl.textContent = '';
+  document.getElementById('upload-section').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  document.getElementById('dash-subtitle').textContent =
+    filename + ' — ' + data.transactions.length + ' transactions';
 
   document.getElementById('stat-total').textContent = '$' + data.total.toFixed(2);
   document.getElementById('stat-count').textContent = data.transactions.length;
+  document.getElementById('stat-avg').textContent =
+    '$' + (data.total / data.transactions.length).toFixed(2);
+
   const topCat = Object.keys(data.by_category)[0] || '—';
   document.getElementById('stat-top-cat').textContent = topCat;
 
-  buildCatChart(Object.keys(data.by_category), Object.values(data.by_category));
-  buildDateChart(Object.keys(data.by_date), Object.values(data.by_date));
+  buildCharts(data);
+
+  // Populate category filter
+  const catSel = document.getElementById('cat-filter');
+  catSel.innerHTML = '<option value="">All categories</option>';
+  Object.keys(data.by_category).forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat; opt.textContent = cat;
+    catSel.appendChild(opt);
+  });
+
+  renderTable();
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const search  = document.getElementById('search').value.toLowerCase();
+  const catFilt = document.getElementById('cat-filter').value;
+
+  let rows = allTransactions.filter(t => {
+    const matchSearch = !search || t.name.toLowerCase().includes(search);
+    const matchCat    = !catFilt || t.category === catFilt;
+    return matchSearch && matchCat;
+  });
+
+  rows.sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (sortCol === 'amount') { va = +va; vb = +vb; }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
 
   const tbody = document.getElementById('txn-tbody');
-  if (!data.transactions.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:1rem">No transactions found</td></tr>';
-    return;
-  }
-  tbody.innerHTML = data.transactions.map(t => `
+  tbody.innerHTML = rows.map(t => `
     <tr>
-      <td>${t.date}</td>
-      <td>${escHtml(t.name)}</td>
-      <td><span class="badge">${escHtml(t.category)}</span></td>
+      <td>${esc(t.date)}</td>
+      <td>${esc(t.name)}</td>
+      <td><span class="badge">${esc(t.category)}</span></td>
       <td class="amount">$${t.amount.toFixed(2)}</td>
     </tr>
-  `).join('');
+  `).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:1rem">No results</td></tr>';
+
+  document.getElementById('row-count').textContent =
+    rows.length + ' of ' + allTransactions.length + ' transactions shown';
 }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+document.getElementById('search').addEventListener('input', renderTable);
+document.getElementById('cat-filter').addEventListener('change', renderTable);
+
+document.querySelectorAll('th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) { sortAsc = !sortAsc; }
+    else { sortCol = col; sortAsc = col !== 'amount'; }
+    renderTable();
+  });
+});
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-
-document.getElementById('days-select')?.addEventListener('change', loadTransactions);
-
-// Auto-load if already connected
-if (document.getElementById('dashboard').style.display !== 'none') loadTransactions();
 </script>
 
 </body>

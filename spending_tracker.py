@@ -1,159 +1,140 @@
 """
-Capital One Spending Tracker via Plaid
----------------------------------------
-Setup:
-  1. Sign up at https://dashboard.plaid.com and get PLAID_CLIENT_ID + PLAID_SECRET
-  2. Copy .env.example to .env and fill in your credentials
-  3. pip install -r requirements.txt
-  4. python spending_tracker.py
-  5. Open http://localhost:5000 and click "Connect Capital One"
+Capital One Spending Tracker — CSV Upload Edition
+---------------------------------------------------
+No API keys or third-party accounts needed.
+
+How to get your Capital One CSV:
+  1. Log in at capitalone.com
+  2. Go to your account > Transaction History
+  3. Click "Download" and choose CSV
+  4. Upload the file here
+
+Run:
+  pip install -r requirements.txt
+  python spending_tracker.py
+  Open http://localhost:5000
 """
 
-import os
-import json
-from datetime import date, timedelta
+import csv
+import io
 from collections import defaultdict
-
-from flask import Flask, request, jsonify, render_template, session
-from plaid.api import plaid_api
-from plaid.model.link_token_create_request import LinkTokenCreateRequest
-from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
-from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
-from plaid.model.transactions_get_request import TransactionsGetRequest
-from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
-from plaid.model.products import Products
-from plaid.model.country_code import CountryCode
-from plaid import ApiClient, Configuration, Environment
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 
-# ── Plaid client setup ────────────────────────────────────────────────────────
-
-PLAID_ENV = os.environ.get("PLAID_ENV", "sandbox")  # sandbox | development | production
-ENV_MAP = {
-    "sandbox": Environment.Sandbox,
-    "development": Environment.Development,
-    "production": Environment.Production,
-}
-
-configuration = Configuration(
-    host=ENV_MAP.get(PLAID_ENV, Environment.Sandbox),
-    api_key={
-        "clientId": os.environ.get("PLAID_CLIENT_ID", ""),
-        "secret": os.environ.get("PLAID_SECRET", ""),
-    },
-)
-api_client = ApiClient(configuration)
-plaid_client = plaid_api.PlaidApi(api_client)
-
-# In-memory token store (use a DB in production)
-_access_tokens: list[str] = []
+# Capital One CSV columns (case-insensitive matching below)
+COL_DATE = "transaction date"
+COL_DESC = "description"
+COL_CATEGORY = "category"
+COL_DEBIT = "debit"
+COL_CREDIT = "credit"
+COL_CARD = "card no."
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+def parse_capital_one_csv(text: str) -> list[dict]:
+    """Parse a Capital One transaction CSV into a list of transaction dicts."""
+    reader = csv.DictReader(io.StringIO(text))
 
-@app.route("/")
-def index():
-    connected = bool(_access_tokens)
-    return render_template("index.html", connected=connected)
+    # Normalize header names to lowercase
+    rows = []
+    for row in reader:
+        normalized = {k.strip().lower(): v.strip() for k, v in row.items()}
+        rows.append(normalized)
 
+    transactions = []
+    for row in rows:
+        # Skip credits/refunds (Debit is blank, Credit has a value)
+        debit_str = row.get(COL_DEBIT, "").replace("$", "").replace(",", "").strip()
+        credit_str = row.get(COL_CREDIT, "").replace("$", "").replace(",", "").strip()
 
-@app.route("/api/create_link_token", methods=["POST"])
-def create_link_token():
-    """Step 1: create a Plaid Link token for the frontend to open."""
-    try:
-        req = LinkTokenCreateRequest(
-            products=[Products("transactions")],
-            client_name="Capital One Spending Tracker",
-            country_codes=[CountryCode("US")],
-            language="en",
-            user=LinkTokenCreateRequestUser(client_user_id="local-user"),
-        )
-        response = plaid_client.link_token_create(req)
-        return jsonify({"link_token": response["link_token"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/exchange_token", methods=["POST"])
-def exchange_token():
-    """Step 2: exchange the public token from Plaid Link for an access token."""
-    public_token = request.json.get("public_token")
-    if not public_token:
-        return jsonify({"error": "missing public_token"}), 400
-    try:
-        req = ItemPublicTokenExchangeRequest(public_token=public_token)
-        response = plaid_client.item_public_token_exchange(req)
-        _access_tokens.append(response["access_token"])
-        return jsonify({"status": "connected"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/transactions")
-def get_transactions():
-    """Return transactions + spending summary for the past N days."""
-    if not _access_tokens:
-        return jsonify({"error": "not connected"}), 401
-
-    days = int(request.args.get("days", 30))
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days)
-
-    all_transactions = []
-    for token in _access_tokens:
         try:
-            options = TransactionsGetRequestOptions(count=500, offset=0)
-            req = TransactionsGetRequest(
-                access_token=token,
-                start_date=start_date,
-                end_date=end_date,
-                options=options,
-            )
-            resp = plaid_client.transactions_get(req)
-            all_transactions.extend(resp["transactions"])
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            amount = float(debit_str) if debit_str else 0.0
+        except ValueError:
+            amount = 0.0
 
-    # Build summary
+        try:
+            credit = float(credit_str) if credit_str else 0.0
+        except ValueError:
+            credit = 0.0
+
+        # Skip credits/refunds; include only debits
+        if amount <= 0:
+            continue
+
+        transactions.append({
+            "date": row.get(COL_DATE, ""),
+            "name": row.get(COL_DESC, ""),
+            "category": row.get(COL_CATEGORY, "Uncategorized") or "Uncategorized",
+            "amount": round(amount, 2),
+            "credit": round(credit, 2),
+            "card": row.get(COL_CARD, ""),
+        })
+
+    return transactions
+
+
+def build_summary(transactions: list[dict]) -> dict:
     by_category: dict[str, float] = defaultdict(float)
     by_date: dict[str, float] = defaultdict(float)
     total = 0.0
-    transactions_out = []
 
-    for txn in all_transactions:
-        amount = float(txn["amount"])
-        # Plaid: positive = money leaving account, negative = credit/refund
-        if amount <= 0:
-            continue
-        category = (txn.get("category") or ["Uncategorized"])[0]
-        txn_date = str(txn["date"])
-        by_category[category] += amount
-        by_date[txn_date] += amount
-        total += amount
-        transactions_out.append({
-            "date": txn_date,
-            "name": txn["name"],
-            "amount": round(amount, 2),
-            "category": category,
-        })
+    for t in transactions:
+        by_category[t["category"]] += t["amount"]
+        by_date[t["date"]] += t["amount"]
+        total += t["amount"]
 
-    transactions_out.sort(key=lambda x: x["date"], reverse=True)
+    # Sort dates chronologically, categories by spend descending
+    sorted_dates = dict(sorted(by_date.items()))
+    sorted_cats = dict(sorted(by_category.items(), key=lambda x: -x[1]))
 
-    return jsonify({
+    return {
         "total": round(total, 2),
-        "days": days,
-        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda x: -x[1])},
-        "by_date": dict(sorted(by_date.items())),
-        "transactions": transactions_out,
-    })
+        "by_category": {k: round(v, 2) for k, v in sorted_cats.items()},
+        "by_date": {k: round(v, 2) for k, v in sorted_dates.items()},
+        "transactions": sorted(transactions, key=lambda x: x["date"], reverse=True),
+    }
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload():
+    """Accept a Capital One CSV file and return spending data."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".csv"):
+        return jsonify({"error": "Please upload a .csv file"}), 400
+
+    try:
+        text = f.read().decode("utf-8-sig")  # utf-8-sig strips BOM if present
+    except UnicodeDecodeError:
+        try:
+            f.seek(0)
+            text = f.read().decode("latin-1")
+        except Exception as e:
+            return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    try:
+        transactions = parse_capital_one_csv(text)
+    except Exception as e:
+        return jsonify({"error": f"Parse error: {e}"}), 400
+
+    if not transactions:
+        return jsonify({"error": "No debit transactions found. Make sure this is a Capital One CSV."}), 400
+
+    return jsonify(build_summary(transactions))
 
 
 if __name__ == "__main__":
+    import os
     os.makedirs("templates", exist_ok=True)
     print("Starting Capital One Spending Tracker on http://localhost:5000")
     app.run(debug=True, port=5000)
